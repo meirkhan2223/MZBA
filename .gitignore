@@ -1,0 +1,9 @@
+.DS_Store
+# исходники и бэкапы, которые сайт не использует
+slides/_orig/
+slides/.1_original.jpg
+slides/*.pdf
+images/*
+!images/bg*
+фото/*
+!фото/cut/
