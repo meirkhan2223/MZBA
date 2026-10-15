@@ -111,6 +111,17 @@
   .tab-btn:hover { color: #fff; transform: translateY(-1px); }
   .tab-btn.active { color: #fff; background: linear-gradient(90deg, var(--accent), var(--accent2)); box-shadow: 0 6px 20px rgba(124,156,255,0.4); }
 
+  .music-btn {
+    width: 46px; height: 46px; flex-shrink: 0; border-radius: 50%; cursor: pointer;
+    border: 1px solid var(--glass-border); background: var(--glass); display: grid; place-items: center;
+    transition: transform .3s var(--ease), background .3s;
+  }
+  .music-btn:hover { transform: scale(1.08); background: rgba(255,255,255,0.18); }
+  .music-btn .eq { display: flex; align-items: flex-end; gap: 3px; height: 18px; }
+  .music-btn .eq i { width: 3px; height: 100%; border-radius: 2px; background: linear-gradient(0deg, var(--accent), var(--accent2)); transform-origin: bottom; animation: eq 1.1s ease-in-out infinite; }
+  .music-btn .eq i:nth-child(2) { animation-delay: -.3s; } .music-btn .eq i:nth-child(3) { animation-delay: -.6s; } .music-btn .eq i:nth-child(4) { animation-delay: -.9s; }
+  @keyframes eq { 0%, 100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
+  .music-btn.off .eq i { animation: none; transform: scaleY(.25); background: rgba(255,255,255,0.45); }
   main { max-width: 1100px; margin: 0 auto; padding: 40px 24px 60px; }
   .tab { display: none; }
   .tab.active { display: block; animation: tabIn .8s var(--ease) both; }
@@ -447,6 +458,7 @@
     <button class="tab-btn" data-tab="dance">Танцуем 💃</button>
     <button class="tab-btn" data-tab="final">Финал ✨</button>
   </nav>
+  <button class="music-btn" id="musicBtn" aria-label="Фоновая музыка"><span class="eq"><i></i><i></i><i></i><i></i></span></button>
 </header>
 
 <main>
@@ -1378,6 +1390,143 @@ function tgFinal() {
   confetti();
 }
 tgIntro();
+
+/* ================= ФОНОВАЯ МУЗЫКА (спокойное электропиано) ================= */
+const ambient = (() => {
+  const BEAT = 60 / 72 / 2;                       // восьмые, 72 bpm
+  const VOLUME = 0.55;                            // общий уровень (сами ноты тихие)
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+  // Cmaj9 — Am9 — Fmaj9 — G6/9 (по 2 такта)
+  const CHORDS = [
+    { bass: 36, pad: [55, 59, 62, 64], arp: [64, 67, 71, 74, 76, 79] },
+    { bass: 33, pad: [52, 55, 59, 60], arp: [60, 64, 67, 71, 72, 76] },
+    { bass: 29, pad: [52, 55, 57, 60], arp: [60, 64, 65, 69, 72, 76] },
+    { bass: 31, pad: [53, 57, 59, 62], arp: [62, 64, 67, 69, 71, 74] }
+  ];
+  let master = null, wet = null, timer = null, step = 0, next = 0, padNodes = [];
+  let enabled = true, started = false;
+  const ducks = new Set();
+  try { enabled = localStorage.getItem('mzba-music') !== 'off'; } catch (e) {}
+
+  function build(a) {
+    master = a.createGain(); master.gain.value = 0.0001;
+    const comp = a.createDynamicsCompressor();
+    comp.threshold.value = -24; comp.ratio.value = 3;
+    master.connect(comp); comp.connect(a.destination);
+    // мягкий ревер из сгенерированного импульса
+    const len = a.sampleRate * 3.2, ir = a.createBuffer(2, len, a.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+    }
+    const conv = a.createConvolver(); conv.buffer = ir;
+    wet = a.createGain(); wet.gain.value = 0.45;
+    wet.connect(conv); conv.connect(master);
+  }
+  function out(node) { node.connect(master); node.connect(wet); }
+
+  // нота электропиано: FM-«язычок» + быстрый спад
+  function ep(midi, t, vel, dur = 2.6) {
+    const a = audioCtx(), f = mtof(midi);
+    const car = a.createOscillator(), mod = a.createOscillator(), mg = a.createGain(), g = a.createGain();
+    car.frequency.value = f; mod.frequency.value = f * 1.0;
+    mg.gain.setValueAtTime(f * 1.6, t); mg.gain.exponentialRampToValueAtTime(f * 0.05, t + 0.6);
+    mod.connect(mg); mg.connect(car.frequency);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vel, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(vel * 0.35, t + 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    car.connect(g); out(g);
+    car.start(t); mod.start(t); car.stop(t + dur + 0.05); mod.stop(t + dur + 0.05);
+  }
+  // тёплый пэд на весь аккорд
+  function pad(notes, t, dur) {
+    const a = audioCtx(), g = a.createGain(), lp = a.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 900;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.022, t + 1.2);
+    g.gain.setValueAtTime(0.022, t + dur - 1);
+    g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.6);
+    lp.connect(g); out(g);
+    notes.forEach(m => [-6, 6].forEach(det => {
+      const o = a.createOscillator();
+      o.type = 'triangle'; o.frequency.value = mtof(m); o.detune.value = det;
+      o.connect(lp); o.start(t); o.stop(t + dur + 0.7);
+    }));
+  }
+  function bass(midi, t) {
+    const a = audioCtx(), o = a.createOscillator(), g = a.createGain();
+    o.frequency.value = mtof(midi);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + BEAT * 14);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + BEAT * 14 + 0.1);
+  }
+  function tick() {
+    const a = audioCtx();
+    while (next < a.currentTime + 0.25) {
+      const s = step % 16, chord = CHORDS[Math.floor(step / 16) % CHORDS.length], t = next;
+      if (s === 0) { bass(chord.bass, t); pad(chord.pad, t, BEAT * 16); }
+      // мягкое арпеджио с «дыханием»: не каждая доля звучит
+      const play = s % 2 === 0 ? Math.random() < 0.8 : Math.random() < 0.35;
+      if (play) {
+        const n = chord.arp[(s * 3 + Math.floor(step / 16)) % chord.arp.length];
+        ep(n, t + (Math.random() - 0.5) * 0.015, 0.035 + Math.random() * 0.03);
+      }
+      next += BEAT; step++;
+    }
+  }
+  function target() { return enabled && !ducks.size && !document.hidden ? VOLUME : 0.0001; }
+  function apply(sec = 1.2) {
+    if (!master) return;
+    const a = audioCtx(), v = target();
+    master.gain.cancelScheduledValues(a.currentTime);
+    master.gain.setValueAtTime(Math.max(master.gain.value, 0.0001), a.currentTime);
+    master.gain.exponentialRampToValueAtTime(v, a.currentTime + sec);
+    const run = v > 0.001;
+    if (run && !timer) { next = Math.max(next, a.currentTime + 0.1); timer = setInterval(tick, 50); }
+    if (!run && timer) setTimeout(() => { if (target() <= 0.001) { clearInterval(timer); timer = null; } }, sec * 1000 + 100);
+  }
+  function start() {
+    if (started) return;
+    started = true;
+    const a = audioCtx(); a.resume();
+    build(a); next = a.currentTime + 0.2;
+    apply(3);
+  }
+  document.addEventListener('visibilitychange', () => apply(0.6));
+  return {
+    start, get enabled() { return enabled; },
+    toggle() {
+      if (!started && enabled) { start(); return true; }
+      enabled = !enabled;
+      try { localStorage.setItem('mzba-music', enabled ? 'on' : 'off'); } catch (e) {}
+      if (!started) start(); else apply(0.8);
+      return enabled;
+    },
+    duck(reason, on) { on ? ducks.add(reason) : ducks.delete(reason); apply(on ? 0.6 : 2.5); }
+  };
+})();
+
+// браузеры разрешают звук только после первого действия пользователя
+function firstGesture(e) {
+  if (e.target.closest && e.target.closest('#musicBtn')) return;   // кнопка сама решает
+  ['pointerdown', 'keydown'].forEach(ev => document.removeEventListener(ev, firstGesture, true));
+  if (ambient.enabled) ambient.start();
+}
+['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, firstGesture, true));
+
+// кнопка в шапке
+const musicBtn = $('musicBtn');
+const paintMusicBtn = () => { musicBtn.classList.toggle('off', !ambient.enabled); musicBtn.title = ambient.enabled ? 'Выключить фоновую музыку' : 'Включить фоновую музыку'; };
+musicBtn.addEventListener('click', e => { e.stopPropagation(); ambient.toggle(); paintMusicBtn(); });
+paintMusicBtn();
+
+// приглушаем фон, когда играет другая музыка
+song.addEventListener('play', () => ambient.duck('song', true));
+['pause', 'ended'].forEach(ev => song.addEventListener(ev, () => ambient.duck('song', false)));
+const hoolStart = hool.start.bind(hool), hoolStop = hool.stop.bind(hool);
+hool.start = function () { hoolStart(); ambient.duck('hool', true); };
+hool.stop = function (fade) { hoolStop(fade); ambient.duck('hool', false); };
 </script>
 </body>
 </html>
