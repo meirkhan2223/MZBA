@@ -88,7 +88,7 @@
     transition: opacity .55s var(--ease), transform .55s var(--ease), filter .55s var(--ease);
     color: var(--muted);
   }
-  .mzba .name span.show { opacity: 1; transform: none; filter: blur(0); }
+  .mzba .name span.vis { opacity: 1; transform: none; filter: blur(0); }
   .mzba.big { --lsize: clamp(64px, 14vw, 140px); --nsize: clamp(10px, 1.8vw, 17px); --nls: 3px; --gap: clamp(8px, 3vw, 40px); --colw: clamp(64px, 16vw, 170px); --nmt: 10px; justify-content: center; }
 
   /* ---------- ШАПКА И ВКЛАДКИ ---------- */
@@ -661,7 +661,7 @@ async function logoLoop() {
       logos.forEach(l => l.children[i].classList.add('lit'));
       const letters = logos.map(l => [...l.children[i].querySelectorAll('.name span')]);
       for (let k = 0; k < letters[0].length; k++) {
-        letters.forEach(arr => arr[k].classList.add('show'));
+        letters.forEach(arr => arr[k].classList.add('vis'));
         await sleep(85);
       }
       await sleep(450);
@@ -669,7 +669,7 @@ async function logoLoop() {
     }
     await sleep(4500);
     // плавно скрываем и начинаем заново
-    logos.forEach(l => l.querySelectorAll('.name span').forEach((s, n) => setTimeout(() => s.classList.remove('show'), n * 18)));
+    logos.forEach(l => l.querySelectorAll('.name span').forEach((s, n) => setTimeout(() => s.classList.remove('vis'), n * 18)));
     await sleep(1400);
   }
 }
